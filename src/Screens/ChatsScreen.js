@@ -36,9 +36,9 @@ export const ChatsScreen = () => {
         id: doc.id,
         userB: doc.data().participants.find(p => p.email !== currUser.email),
       }));
+      dispatch(setUnfilteredRooms(parsedChats));
+      dispatch(setRooms(parsedChats.filter(doc => doc.lastMessage)));
     });
-    dispatch(setUnfilteredRooms(parsedChats));
-    dispatch(setRooms(parsedChats.filter(doc => doc.lastMessage)));
   }, []);
 
   function getUserB(user, contacts) {
@@ -49,8 +49,17 @@ export const ChatsScreen = () => {
     return user;
   }
   return (
-    <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
-      <Text>Chats Screen</Text>
+    <View style={{flex: 1, padding: 5, paddingRight: 10}}>
+      {rooms.map(room => (
+        <ListItem
+          type="chat"
+          description={room.lastMessage.text}
+          key={room.id}
+          room={room}
+          time={room.lastMessage.createdAt}
+          user={getUserB(room.userB, contacts)}
+        />
+      ))}
       <ContactsFloatingIcon />
     </View>
   );
