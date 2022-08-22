@@ -1,7 +1,7 @@
-import {useRoute} from '@react-navigation/native';
+import { useRoute } from '@react-navigation/native';
 import 'react-native-get-random-values';
-import {nanoid} from 'nanoid';
-import React, {useCallback, useContext, useEffect, useState} from 'react';
+import { nanoid } from 'nanoid';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,26 +9,20 @@ import {
   TouchableOpacity,
   Image,
 } from 'react-native';
-import {Ionicons} from '@expo/vector-icons';
-import {auth, db} from '../firebase';
-import GlobalContext from '../context/Context';
-import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  setDoc,
-  updateDoc,
-} from '@firebase/firestore';
+
+import firestore from '@react-native-firebase/firestore';
+import { useDispatch, useSelector } from 'react-redux';
+
+
 import {
   Actions,
   Bubble,
   GiftedChat,
   InputToolbar,
 } from 'react-native-gifted-chat';
-import {pickImage, uploadImage} from '../utils';
+import { pickImage, uploadImage } from '../utils';
 import ImageView from 'react-native-image-viewing';
-
+import { palette } from '../config';
 const randomId = nanoid();
 
 export default function ChatScreen() {
@@ -36,10 +30,9 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedImageView, setSeletedImageView] = useState('');
-  const {
-    theme: {colors},
-  } = useContext(GlobalContext);
-  const {currentUser} = auth;
+
+
+  const currUser = useSelector(state => state.auth.user);
   const route = useRoute();
   const room = route.params.room;
   const selectedImage = route.params.image;
@@ -47,16 +40,18 @@ export default function ChatScreen() {
 
   const senderUser = currentUser.photoURL
     ? {
-        name: currentUser.displayName,
-        _id: currentUser.uid,
-        avatar: currentUser.photoURL,
-      }
-    : {name: currentUser.displayName, _id: currentUser.uid};
+      name: currentUser.displayName,
+      _id: currentUser.uid,
+      avatar: currentUser.photoURL,
+    }
+    : { name: currentUser.displayName, _id: currentUser.uid };
 
   const roomId = room ? room.id : randomId;
 
-  const roomRef = doc(db, 'rooms', roomId);
-  const roomMessagesRef = collection(db, 'rooms', roomId, 'messages');
+
+  const roomRef = firestore().collection('rooms', roomId);
+  const roomMessagesRef = firestore().collection('rooms', roomId, 'messages');
+
 
   useEffect(() => {
     (async () => {
@@ -80,7 +75,8 @@ export default function ChatScreen() {
           participantsArray: [currentUser.email, userB.email],
         };
         try {
-          await setDoc(roomRef, roomData);
+          //await setDoc(roomRef, roomData);
+          await roomRef.doc().set(roomData);
         } catch (error) {
           console.log(error);
         }
@@ -94,18 +90,26 @@ export default function ChatScreen() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(roomMessagesRef, querySnapshot => {
-      const messagesFirestore = querySnapshot
-        .docChanges()
-        .filter(({type}) => type === 'added')
-        .map(({doc}) => {
-          const message = doc.data();
-          return {...message, createdAt: message.createdAt.toDate()};
-        })
+    roomMessagesRef.onSnapshot(snap => {
+      const messagesFirestore = snap.docChanges().filter(({ type }) => type === 'added').map(({ doc }) => {
+        const message = doc.data();
+        return { ...message, createdAt: message.createdAt.toDate() };
+      })
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       appendMessages(messagesFirestore);
-    });
-    return () => unsubscribe();
+    })
+    // const unsubscribe = onSnapshot(roomMessagesRef, querySnapshot => {
+    //   const messagesFirestore = querySnapshot
+    //     .docChanges()
+    //     .filter(({ type }) => type === 'added')
+    //     .map(({ doc }) => {
+    //       const message = doc.data();
+    //       return { ...message, createdAt: message.createdAt.toDate() };
+    //     })
+    //     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    //   appendMessages(messagesFirestore);
+    // });
+    // return () => unsubscribe();
   }, []);
 
   const appendMessages = useCallback(
@@ -118,14 +122,15 @@ export default function ChatScreen() {
   );
 
   async function onSend(messages = []) {
-    const writes = messages.map(m => addDoc(roomMessagesRef, m));
+
+    const writes = messages.map(m => roomMessagesRef.add(m));
     const lastMessage = messages[messages.length - 1];
-    writes.push(updateDoc(roomRef, {lastMessage}));
+    writes.push(roomRef.doc().update({ lastMessage }));
     await Promise.all(writes);
   }
 
   async function sendImage(uri, roomPath) {
-    const {url, fileName} = await uploadImage(
+    const { url, fileName } = await uploadImage(
       uri,
       `images/rooms/${roomPath || roomHash}`,
     );
@@ -136,10 +141,11 @@ export default function ChatScreen() {
       user: senderUser,
       image: url,
     };
-    const lastMessage = {...message, text: 'Image'};
+    const lastMessage = { ...message, text: 'Image' };
     await Promise.all([
-      addDoc(roomMessagesRef, message),
-      updateDoc(roomRef, {lastMessage}),
+      roomMessagesRef.add(message),
+
+      roomRef.doc().update({ lastMessage }),
     ]);
   }
 
@@ -154,7 +160,7 @@ export default function ChatScreen() {
     <ImageBackground
       resizeMode="cover"
       source={require('../assets/chatbg.png')}
-      style={{flex: 1}}>
+      style={{ flex: 1 }}>
       <GiftedChat
         onSend={onSend}
         messages={messages}
@@ -171,20 +177,20 @@ export default function ChatScreen() {
             }}
             onPressActionButton={handlePhotoPicker}
             icon={() => (
-              <Ionicons name="camera" size={30} color={colors.iconGray} />
+              <Ionicons name="camera" size={30} color={palette.iconGray} />
             )}
           />
         )}
-        timeTextStyle={{right: {color: colors.iconGray}}}
+        timeTextStyle={{ right: { color: palette.iconGray } }}
         renderSend={props => {
-          const {text, messageIdGenerator, user, onSend} = props;
+          const { text, messageIdGenerator, user, onSend } = props;
           return (
             <TouchableOpacity
               style={{
                 height: 40,
                 width: 40,
                 borderRadius: 40,
-                backgroundColor: colors.primary,
+                backgroundColor: palette.tealGreenDark,
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginBottom: 5,
@@ -201,7 +207,7 @@ export default function ChatScreen() {
                   );
                 }
               }}>
-              <Ionicons name="send" size={20} color={colors.white} />
+              <Ionicons name="send" size={20} color={palette.white} />
             </TouchableOpacity>
           );
         }}
@@ -220,20 +226,20 @@ export default function ChatScreen() {
         renderBubble={props => (
           <Bubble
             {...props}
-            textStyle={{right: {color: colors.text}}}
+            textStyle={{ right: { color: palette.gray } }}
             wrapperStyle={{
               left: {
-                backgroundColor: colors.white,
+                backgroundColor: palette.white,
               },
               right: {
-                backgroundColor: colors.tertiary,
+                backgroundColor: palette.tealGreen,
               },
             }}
           />
         )}
         renderMessageImage={props => {
           return (
-            <View style={{borderRadius: 15, padding: 2}}>
+            <View style={{ borderRadius: 15, padding: 2 }}>
               <TouchableOpacity
                 onPress={() => {
                   setModalVisible(true);
@@ -248,14 +254,14 @@ export default function ChatScreen() {
                     borderRadius: 15,
                     resizeMode: 'cover',
                   }}
-                  source={{uri: props.currentMessage.image}}
+                  source={{ uri: props.currentMessage.image }}
                 />
                 {selectedImageView ? (
                   <ImageView
                     imageIndex={0}
                     visible={modalVisible}
                     onRequestClose={() => setModalVisible(false)}
-                    images={[{uri: selectedImageView}]}
+                    images={[{ uri: selectedImageView }]}
                   />
                 ) : null}
               </TouchableOpacity>
